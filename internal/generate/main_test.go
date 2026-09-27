@@ -25,7 +25,7 @@ func load(t *testing.T, name string) manifest {
 // The last release before the archive switch: its .tar.xz archives are exactly what the
 // launcher cannot open, so the generator must refuse rather than publish a broken version.
 func TestAnXzReleaseIsRefused(t *testing.T) {
-	_, err := fromManifest(filepath.Join("testdata", "dist-manifest-0.2.1.json"))
+	_, _, err := fromManifest(filepath.Join("testdata", "dist-manifest-0.2.1.json"))
 
 	if err == nil || !strings.Contains(err.Error(), "needs a .tar.gz archive") {
 		t.Fatalf("err = %v", err)
@@ -33,20 +33,15 @@ func TestAnXzReleaseIsRefused(t *testing.T) {
 }
 
 func TestEveryPlatformGetsItsArchiveAndChecksum(t *testing.T) {
-	source, err := fromManifest(filepath.Join("testdata", "dist-manifest-targz.json"))
+	version, entries, err := fromManifest(filepath.Join("testdata", "dist-manifest-targz.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	golden, err := os.ReadFile(filepath.Join("testdata", "release.golden"))
-	if os.Getenv("UPDATE_GOLDEN") == "1" {
-		err = os.WriteFile(filepath.Join("testdata", "release.golden"), source, 0o644)
-	}
+	source, err := render(version, entries)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(source) != string(golden) && os.Getenv("UPDATE_GOLDEN") != "1" {
-		t.Fatalf("generated source differs from testdata/release.golden:\n%s", source)
-	}
+	matchesGolden(t, "release.golden", source)
 	for platform := range platforms {
 		if !strings.Contains(string(source), `"`+platform+`"`) {
 			t.Errorf("no entry for %s", platform)
@@ -152,6 +147,80 @@ func TestThePlaceholderHasNoArchives(t *testing.T) {
 	if !strings.Contains(string(source), `const version = ""`) ||
 		!strings.Contains(string(source), "var archives = map[string]archive{}") {
 		t.Fatalf("placeholder:\n%s", source)
+	}
+}
+
+func TestEveryTripleGetsItsArchiveAndChecksumInPHP(t *testing.T) {
+	version, entries, err := fromManifest(filepath.Join("testdata", "dist-manifest-targz.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := renderPHP(version, entries)
+
+	matchesGolden(t, "Release.php.golden", source)
+	for _, triple := range platforms {
+		if !strings.Contains(string(source), "'"+triple+"' => [") {
+			t.Errorf("no entry for %s", triple)
+		}
+	}
+}
+
+// The committed placeholder is exactly what the generator writes, so main never drifts from it.
+func TestThePHPPlaceholderIsTheCommittedOne(t *testing.T) {
+	committed, err := os.ReadFile(filepath.Join("..", "..", "composer", "src", "Release.php"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The release job runs these tests after writing the real file; the root package's
+	// TestTheComposerReleaseMatchesTheGoRelease covers that checkout instead.
+	if !strings.Contains(string(committed), "VERSION = '';") {
+		t.Skip("a release checkout: Release.php is generated")
+	}
+	source := renderPHP("", nil)
+
+	if string(source) != string(committed) {
+		t.Fatalf("placeholder:\n%s", source)
+	}
+	if !strings.Contains(string(source), "VERSION = '';") || !strings.Contains(string(source), "ARCHIVES = [];") {
+		t.Fatalf("placeholder:\n%s", source)
+	}
+}
+
+func TestWithoutPHPOnlyReleaseGoIsWritten(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "release.go")
+
+	if err := write(out, "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 {
+		t.Fatalf("wrote %d files", len(entries))
+	}
+}
+
+func TestAPHPStringIsQuoted(t *testing.T) {
+	if got := phpString(`a'b\c`); got != `'a\'b\\c'` {
+		t.Fatalf("phpString = %s", got)
+	}
+}
+
+func matchesGolden(t *testing.T, name string, source []byte) {
+	t.Helper()
+	path := filepath.Join("testdata", name)
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile(path, source, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	golden, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(source) != string(golden) {
+		t.Fatalf("generated source differs from testdata/%s:\n%s", name, source)
 	}
 }
 

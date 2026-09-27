@@ -24,8 +24,10 @@ jobs:
           - os: macos-latest
             go: "1.21.x"
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ matrix.go }}
       - run: go vet ./...
@@ -35,8 +37,10 @@ jobs:
     name: Module shape
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: stable
       # `go get -tool` merges a tool's dependencies into the user's go.mod, so there must be none.
@@ -48,3 +52,98 @@ jobs:
                           windows/arm64 linux/riscv64 freebsd/amd64 plan9/amd64 js/wasm; do
             GOOS=${platform%/*} GOARCH=${platform#*/} go build -o /dev/null . || exit 1
           done
+      # The proxy zips every committed file, the Composer launcher's too, and a name Go rejects
+      # (Aux.php, a quote) would break that version for good; cmd/go builds this commit's zip alike.
+      - name: The module zip builds
+        env:
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          GOPROXY: direct
+          GONOSUMDB: bonsai.kauneckas.dev
+        run: cd "$RUNNER_TEMP" && go mod download -json "bonsai.kauneckas.dev/bonsai-lint@$COMMIT"
+
+  lint:
+    # Every tag of this repository ships to users as it stands, so the launchers meet the same bar
+    # as bonsai-lint itself: formatting, static analysis, spelling, the scripts, and its own score.
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+      # Exact releases, so new rules arrive with a deliberate bump, not with an unrelated change.
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: "8.5"
+          tools: phpstan:2.2.14
+          coverage: none
+      - name: Go formatting
+        run: test -z "$(gofmt -l .)"
+      - name: PHPStan
+        run: phpstan analyse --no-progress
+      - name: Shell scripts
+        run: shellcheck composer/tests/*.sh
+      - name: PowerShell
+        shell: pwsh
+        run: |
+          $findings = Invoke-ScriptAnalyzer -Path composer/tests/check.ps1 -Severity Warning, Error
+          $findings | Format-Table -AutoSize
+          if ($findings) { exit 1 }
+      - name: Spelling
+        uses: crate-ci/typos@512fc24f32f44ab01972217aaaf3dc86ec234d53 # v1.50.2
+      - name: Cognitive complexity
+        run: |
+          cd "$RUNNER_TEMP" && go install bonsai.kauneckas.dev/bonsai-lint@v0.4.2
+          cd "$GITHUB_WORKSPACE" && "$(go env GOPATH)/bin/bonsai-lint" .
+
+  workflows:
+    # The tag this repository publishes is pushed by another repository's token, but a workflow
+    # here still runs on every tag, so it is audited like code: pinned actions, no injection.
+    name: Workflow security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: zizmor@1.30.1
+      # The token lets zizmor check that every pinned commit belongs to its action's repository.
+      - name: zizmor
+        run: zizmor --format github .github
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  composer:
+    # Every Composer version is permanent, so the launcher runs on the oldest and newest PHP it
+    # accepts, on every OS, through Composer itself and against a real bonsai-lint release.
+    name: Composer (${{ matrix.os }}, PHP ${{ matrix.php }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        php: ["7.4", "8.5"]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer
+          coverage: none
+      - run: php composer/tests/run.php
+      - run: composer validate --strict
+      - name: Installs and runs the latest release through Composer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash composer/tests/smoke.sh "$(gh release view --repo ryckakas/bonsai-lint --json tagName --jq .tagName)"

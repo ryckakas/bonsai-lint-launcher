@@ -1,0 +1,12 @@
+version: 2
+
+# The workflows pin every action to a commit with its version in a comment; Dependabot moves both.
+# Cooldown holds a release for seven days before proposing it, so a malicious or broken publish is
+# usually caught and yanked first. The module itself has no dependencies to update.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7

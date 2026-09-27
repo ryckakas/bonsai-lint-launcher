@@ -1,8 +1,9 @@
-// Command generate writes the launcher's release.go from the dist-manifest.json of a bonsai-lint
-// release, so each tagged version carries the checksums of the exact archives it may download.
+// Command generate writes the launchers' release files from the dist-manifest.json of a
+// bonsai-lint release, so each tagged version carries the checksums of the exact archives it may
+// download: release.go for the Go module and, with -php, Release.php for the Composer package.
 //
-//	go run ./internal/generate -manifest dist-manifest.json
-//	go run ./internal/generate -placeholder
+//	go run ./internal/generate -manifest dist-manifest.json -php composer/src/Release.php
+//	go run ./internal/generate -placeholder -php composer/src/Release.php
 package main
 
 import (
@@ -57,21 +58,22 @@ var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
 func main() {
 	manifestPath := flag.String("manifest", "", "the released dist-manifest.json")
 	out := flag.String("out", "release.go", "the file to write")
+	php := flag.String("php", "", "also write the Composer launcher's Release.php here")
 	placeholder := flag.Bool("placeholder", false, "write the unreleased placeholder instead")
 	flag.Parse()
 
-	var source []byte
+	var version string
+	var entries []entry
 	var err error
 	switch {
 	case *placeholder:
-		source, err = render("", nil)
 	case *manifestPath != "":
-		source, err = fromManifest(*manifestPath)
+		version, entries, err = fromManifest(*manifestPath)
 	default:
 		err = errors.New("pass -manifest or -placeholder")
 	}
 	if err == nil {
-		err = os.WriteFile(*out, source, 0o644)
+		err = write(*out, *php, version, entries)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "generate:", err)
@@ -79,20 +81,36 @@ func main() {
 	}
 }
 
-func fromManifest(path string) ([]byte, error) {
+// Only an explicit -php writes Release.php: a caller that does not know about it leaves the
+// placeholder, and TestTheComposerReleaseMatchesTheGoRelease then stops the tag.
+func write(out, php, version string, entries []entry) error {
+	source, err := render(version, entries)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(out, source, 0o644); err != nil {
+		return err
+	}
+	if php == "" {
+		return nil
+	}
+	return os.WriteFile(php, renderPHP(version, entries), 0o644)
+}
+
+func fromManifest(path string) (string, []entry, error) {
 	text, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	var m manifest
 	if err := json.Unmarshal(text, &m); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return "", nil, fmt.Errorf("%s: %w", path, err)
 	}
 	version, entries, err := archives(m)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return "", nil, fmt.Errorf("%s: %w", path, err)
 	}
-	return render(version, entries)
+	return version, entries, nil
 }
 
 type entry struct {
@@ -134,34 +152,41 @@ func archives(m manifest) (string, []entry, error) {
 
 func archiveFor(m manifest, triple string) (entry, error) {
 	for _, a := range m.Artifacts {
-		if a.Kind != "executable-zip" || len(a.TargetTriples) != 1 || a.TargetTriples[0] != triple {
-			continue
+		if a.Kind == "executable-zip" && len(a.TargetTriples) == 1 && a.TargetTriples[0] == triple {
+			return entryFor(a, triple)
 		}
-		wantSuffix := ".tar.gz"
-		if strings.Contains(triple, "windows") {
-			wantSuffix = ".zip"
-		}
-		// The standard library has no xz reader, and the launcher takes no dependencies.
-		if !strings.HasSuffix(a.Name, wantSuffix) {
-			return entry{}, fmt.Errorf("%s: the launcher needs a %s archive for %s (set unix-archive in dist-workspace.toml)",
-				a.Name, wantSuffix, triple)
-		}
-		sum := strings.ToLower(a.Checksums["sha256"])
-		if !sha256Hex.MatchString(sum) {
-			return entry{}, fmt.Errorf("%s: no sha256 checksum", a.Name)
-		}
-		binary := ""
-		for _, asset := range a.Assets {
-			if asset.Kind == "executable" {
-				binary = asset.Path
-			}
-		}
-		if binary == "" {
-			return entry{}, fmt.Errorf("%s: no executable listed", a.Name)
-		}
-		return entry{triple: triple, name: a.Name, sha256: sum, binary: binary}, nil
 	}
 	return entry{}, fmt.Errorf("no archive for %s", triple)
+}
+
+func entryFor(a artifact, triple string) (entry, error) {
+	wantSuffix := ".tar.gz"
+	if strings.Contains(triple, "windows") {
+		wantSuffix = ".zip"
+	}
+	// The standard library has no xz reader, and the launcher takes no dependencies.
+	if !strings.HasSuffix(a.Name, wantSuffix) {
+		return entry{}, fmt.Errorf("%s: the launcher needs a %s archive for %s (set unix-archive in dist-workspace.toml)",
+			a.Name, wantSuffix, triple)
+	}
+	sum := strings.ToLower(a.Checksums["sha256"])
+	if !sha256Hex.MatchString(sum) {
+		return entry{}, fmt.Errorf("%s: no sha256 checksum", a.Name)
+	}
+	binary := executableIn(a)
+	if binary == "" {
+		return entry{}, fmt.Errorf("%s: no executable listed", a.Name)
+	}
+	return entry{triple: triple, name: a.Name, sha256: sum, binary: binary}, nil
+}
+
+func executableIn(a artifact) string {
+	for _, asset := range a.Assets {
+		if asset.Kind == "executable" {
+			return asset.Path
+		}
+	}
+	return ""
 }
 
 func render(version string, entries []entry) ([]byte, error) {
@@ -177,4 +202,39 @@ func render(version string, entries []entry) ([]byte, error) {
 	}
 	b.WriteString("}\n")
 	return format.Source(b.Bytes())
+}
+
+// The Composer launcher picks its own triple (always musl on Linux), so it gets every archive the
+// Go launcher does, keyed by triple rather than by GOOS/GOARCH.
+func renderPHP(version string, entries []entry) []byte {
+	var b bytes.Buffer
+	b.WriteString("<?php\n\n// Code generated by internal/generate. DO NOT EDIT.\n\ndeclare(strict_types=1);\n\nnamespace BonsaiLint\\Composer;\n\n")
+	if version == "" {
+		b.WriteString("// An unreleased launcher: the release job replaces this file when it tags a version.\n")
+	}
+	fmt.Fprintf(&b, "final class Release\n{\n    public const VERSION = %s;\n\n", phpString(version))
+	byTriple := map[string]entry{}
+	var triples []string
+	for _, e := range entries {
+		if _, seen := byTriple[e.triple]; !seen {
+			triples = append(triples, e.triple)
+		}
+		byTriple[e.triple] = e
+	}
+	sort.Strings(triples)
+	if len(triples) == 0 {
+		b.WriteString("    public const ARCHIVES = [];\n}\n")
+		return b.Bytes()
+	}
+	b.WriteString("    public const ARCHIVES = [\n")
+	for _, triple := range triples {
+		e := byTriple[triple]
+		fmt.Fprintf(&b, "        %s => [%s, %s],\n", phpString(triple), phpString(e.name), phpString(e.sha256))
+	}
+	b.WriteString("    ];\n}\n")
+	return b.Bytes()
+}
+
+func phpString(s string) string {
+	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s) + "'"
 }

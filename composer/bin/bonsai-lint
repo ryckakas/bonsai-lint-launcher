@@ -1,0 +1,19 @@
+#!/usr/bin/env php
+<?php
+
+// Parseable by any PHP, so an older one gets this line rather than a syntax error from src/.
+if (PHP_VERSION_ID < 70400) {
+    fwrite(STDERR, 'bonsai-lint: the Composer package needs PHP 7.4 or later, and this is PHP '
+        . PHP_VERSION . "; see https://bonsai.kauneckas.dev/guide/install/ for other ways in\n");
+    exit(1);
+}
+if (PHP_SAPI !== 'cli' && PHP_SAPI !== 'phpdbg') {
+    exit(1);
+}
+
+ini_set('display_errors', 'stderr');
+foreach (['Failure', 'Platform', 'Proxy', 'Http', 'Archive', 'Process', 'Release', 'Launcher'] as $class) {
+    require_once __DIR__ . '/../src/' . $class . '.php';
+}
+
+exit(\BonsaiLint\Composer\Launcher::main(dirname(__DIR__, 2), array_slice($_SERVER['argv'], 1)));

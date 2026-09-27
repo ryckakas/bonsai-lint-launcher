@@ -1,1 +1,12 @@
 * text=auto eol=lf
+
+# The Composer package is the GitHub zipball of a tag; Go builds its module zip from git itself
+# and ignores these, so they trim only what Composer users download.
+/.github/** export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/*.go export-ignore
+/go.mod export-ignore
+/phpstan.neon export-ignore
+/internal/** export-ignore
+/composer/tests/** export-ignore
