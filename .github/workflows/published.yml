@@ -110,10 +110,10 @@ jobs:
           composer require --dev --no-interaction "--prefer-$INSTALL" "bonsai-lint/bonsai-lint:${GITHUB_REF_NAME#v}"
       - name: Runs the matching release
         run: bash composer/tests/check.sh "$RUNNER_TEMP/project" "${GITHUB_REF_NAME#v}"
+      # Started exactly as smoke.sh starts it, so CI has already run this on every change.
       - name: Runs through the .bat proxy
         if: runner.os == 'Windows'
-        shell: pwsh
-        run: ./composer/tests/check.ps1 "$env:RUNNER_TEMP/project"
+        run: pwsh -NoProfile -File composer/tests/check.ps1 "$RUNNER_TEMP/project"
       - name: Leaves a source install unmodified
         if: matrix.install == 'source'
         run: test -z "$(git -C "$RUNNER_TEMP/project/vendor/bonsai-lint/bonsai-lint" status --porcelain)"

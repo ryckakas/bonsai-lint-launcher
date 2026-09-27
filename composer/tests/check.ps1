@@ -23,3 +23,5 @@ Assert-ExitCode 1 'stdin through pwsh'
 $found = ($json | Out-String | ConvertFrom-Json).findings[0].path
 if ($found -ne $path) { throw "the stdin path came back as $found" }
 Write-Output 'check: the .bat proxy passes exit codes, stdin and arguments through'
+# The last run above exits 1 on purpose, and some hosts, a GitHub pwsh step among them, exit with it.
+exit 0
