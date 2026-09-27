@@ -211,6 +211,14 @@ function a_certificate_failure_names_the_fix(): void
 
 function every_warning_of_a_failed_open_is_kept(): void
 {
+    $warnings = ['SSL: Success', 'Failed to enable crypto', 'Failed to enable crypto', "Failed to open stream:\noperation failed"];
+
+    same('SSL: Success; Failed to enable crypto; Failed to open stream: operation failed', Http::explain($warnings));
+}
+
+// How many warnings PHP raises here differs by platform: one on Windows, three elsewhere.
+function a_failed_open_names_the_url_and_what_php_said(): void
+{
     $url = 'https://127.0.0.1:' . Fixture::port() . '/files/x';
     $http = new Http('test', Fixture::getenv([]));
 
@@ -219,7 +227,7 @@ function every_warning_of_a_failed_open_is_kept(): void
     });
 
     holds('downloading ' . $url . ': ', $failure);
-    holds('; failed to open stream', strtolower($failure));
+    holds('failed to open stream', strtolower($failure));
 }
 
 function a_proxy_that_refuses_the_tunnel_is_reported(): void
