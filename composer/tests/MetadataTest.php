@@ -67,7 +67,7 @@ function the_composer_dist_holds_only_the_launcher(): void
     }
     sort($shipped);
 
-    $expected = ['LICENSE', 'README.md', 'composer.json', 'composer/bin/bonsai-lint', 'composer/cache/.gitignore'];
+    $expected = ['LAUNCHERS.md', 'LICENSE', 'README.md', 'composer.json', 'composer/bin/bonsai-lint', 'composer/cache/.gitignore'];
     foreach ((array) glob(path($root, 'composer', 'src', '*.php')) as $file) {
         $expected[] = 'composer/src/' . basename($file);
     }
