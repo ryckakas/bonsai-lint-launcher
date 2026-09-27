@@ -1,0 +1,26 @@
+{
+    "name": "bonsai-lint/bonsai-lint",
+    "description": "Multi-language cognitive complexity linter, as a single static binary",
+    "keywords": [
+        "linter",
+        "complexity",
+        "cognitive-complexity",
+        "static-analysis",
+        "multi-language",
+        "static analysis",
+        "dev"
+    ],
+    "homepage": "https://bonsai.kauneckas.dev",
+    "license": "MIT",
+    "support": {
+        "issues": "https://github.com/ryckakas/bonsai-lint/issues",
+        "source": "https://github.com/ryckakas/bonsai-lint",
+        "docs": "https://bonsai.kauneckas.dev/guide/install/"
+    },
+    "require": {
+        "php": ">=7.4"
+    },
+    "bin": [
+        "composer/bin/bonsai-lint"
+    ]
+}

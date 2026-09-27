@@ -1,0 +1,13 @@
+parameters:
+    level: 8
+    phpVersion: 70400
+    paths:
+        - composer/src
+        - composer/bin/bonsai-lint
+    ignoreErrors:
+        # PHP 7.4 cannot type a callable or resource property, and shaping every array in PHPDoc
+        # would add a comment per line; level 8's null and false checks are what matter here.
+        - identifier: missingType.iterableValue
+        - identifier: missingType.property
+        - identifier: missingType.parameter
+        - identifier: missingType.return

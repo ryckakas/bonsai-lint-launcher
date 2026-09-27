@@ -1,7 +1,7 @@
 name: Published
 
 # Runs on the tag bonsai-lint's release pipeline pushes: install the new version the way users
-# will, through the public module proxy, and run it.
+# will, through the public module proxy and through Packagist, and run it.
 on:
   push:
     tags: ["v*"]
@@ -21,7 +21,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: stable
           cache: false
@@ -69,3 +69,78 @@ jobs:
           "$(go env GOPATH)/bin/bonsai-lint" --version | tee version.txt
           grep -Fx "bonsai-lint ${GITHUB_REF_NAME#v}" version.txt
           ls "${XDG_CACHE_HOME:-$HOME/.cache}/bonsai-lint/${GITHUB_REF_NAME#v}" | grep -x '.*-unknown-linux-musl'
+
+  composer:
+    name: composer require (${{ matrix.os }}, ${{ matrix.install }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        # dist is the tag's zipball, trimmed by .gitattributes; source is a clone of the tag.
+        install: [dist, source]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: "8.5"
+          tools: composer
+          coverage: none
+      - name: Wait for Packagist
+        run: |
+          # Packagist's hook fires on the tag push, and its metadata can lag a minute behind.
+          for attempt in $(seq 1 20); do
+            curl -fsS https://repo.packagist.org/p2/bonsai-lint/bonsai-lint.json \
+              | grep -qF "\"version\":\"${GITHUB_REF_NAME}\"" && exit 0
+            echo "attempt $attempt: Packagist does not list ${GITHUB_REF_NAME} yet"
+            sleep 30
+          done
+          exit 1
+      - name: Install from Packagist
+        env:
+          INSTALL: ${{ matrix.install }}
+        run: |
+          mkdir "$RUNNER_TEMP/project" && cd "$RUNNER_TEMP/project"
+          composer init --no-interaction --name=check/project
+          composer require --dev --no-interaction "--prefer-$INSTALL" "bonsai-lint/bonsai-lint:${GITHUB_REF_NAME#v}"
+      - name: Runs the matching release
+        run: bash composer/tests/check.sh "$RUNNER_TEMP/project" "${GITHUB_REF_NAME#v}"
+      - name: Runs through the .bat proxy
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./composer/tests/check.ps1 "$env:RUNNER_TEMP/project"
+      - name: Leaves a source install unmodified
+        if: matrix.install == 'source'
+        run: test -z "$(git -C "$RUNNER_TEMP/project/vendor/bonsai-lint/bonsai-lint" status --porcelain)"
+
+  composer-alpine:
+    # A musl host without pcntl, the shape of most PHP Docker images.
+    name: composer require (Alpine, ${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    container: composer:2
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    steps:
+      - name: Install from Packagist
+        run: |
+          mkdir /tmp/project && cd /tmp/project
+          composer init --no-interaction --name=check/project
+          for attempt in $(seq 1 20); do
+            composer require --dev --no-interaction "bonsai-lint/bonsai-lint:${GITHUB_REF_NAME#v}" && exit 0
+            echo "attempt $attempt: Packagist does not serve ${GITHUB_REF_NAME} yet"
+            sleep 30
+          done
+          exit 1
+      - name: Runs the static build
+        run: |
+          cd /tmp/project
+          vendor/bin/bonsai-lint --version | tee version.txt
+          grep -Fx "bonsai-lint ${GITHUB_REF_NAME#v}" version.txt
+          ls "vendor/bonsai-lint/bonsai-lint/composer/cache/${GITHUB_REF_NAME#v}" | grep -x '.*-unknown-linux-musl'
