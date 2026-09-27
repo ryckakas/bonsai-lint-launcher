@@ -8,6 +8,7 @@ final class Http
 {
     public const REDIRECTS = 5;
     private const DEADLINE = 300;
+    private const IDLE = 60;
     private const CHUNK = 65536;
 
     private string $userAgent;
@@ -175,14 +176,19 @@ final class Http
     private static function drain(array $response, string $url, int $cap, callable $sink): void
     {
         $stream = $response['stream'];
-        $deadline = microtime(true) + self::DEADLINE;
+        $clock = ['deadline' => microtime(true) + self::DEADLINE, 'idle' => microtime(true) + self::IDLE];
         $total = 0;
         try {
             while (!feof($stream)) {
                 $chunk = (string) fread($stream, self::CHUNK);
+                $clock = self::tick($clock, $chunk !== '', $url);
                 $total += strlen($chunk);
-                self::guard($stream, $url, $total, $cap, $deadline);
-                $sink($chunk);
+                if ($total > $cap) {
+                    throw new Failure(sprintf('downloading %s: larger than %d bytes', $url, $cap));
+                }
+                if ($chunk !== '') {
+                    $sink($chunk);
+                }
             }
         } finally {
             fclose($stream);
@@ -190,14 +196,18 @@ final class Http
         self::complete($url, $total, $response['length']);
     }
 
-    private static function guard($stream, string $url, int $total, int $cap, float $deadline): void
+    // PHP's own timed_out flag was seen set 4 ms into a healthy read on Windows, so the launcher keeps
+    // its own clocks: a minute without data, or five minutes in all.
+    private static function tick(array $clock, bool $data, string $url): array
     {
-        if ($total > $cap) {
-            throw new Failure(sprintf('downloading %s: larger than %d bytes', $url, $cap));
-        }
-        if (microtime(true) > $deadline || stream_get_meta_data($stream)['timed_out']) {
+        $now = microtime(true);
+        if ($now > $clock['deadline'] || (!$data && $now > $clock['idle'])) {
             throw new Failure(sprintf('downloading %s: timed out', $url));
         }
+        if ($data) {
+            $clock['idle'] = $now + self::IDLE;
+        }
+        return $clock;
     }
 
     private static function complete(string $url, int $total, ?int $length): void

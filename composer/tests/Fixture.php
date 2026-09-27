@@ -13,6 +13,22 @@ final class Skipped extends \RuntimeException
 {
 }
 
+// A stream that accepts no bytes, as a full disk does.
+final class FullDisk
+{
+    public $context;
+
+    public function stream_open(string $path, string $mode, int $options, ?string &$opened): bool
+    {
+        return true;
+    }
+
+    public function stream_write(string $data): int
+    {
+        return 0;
+    }
+}
+
 function same($expected, $actual, string $what = ''): void
 {
     if ($expected !== $actual) {

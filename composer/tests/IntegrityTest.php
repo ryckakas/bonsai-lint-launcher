@@ -49,8 +49,13 @@ function a_short_write_is_refused(): void
     $http = new Http('test', Fixture::getenv([]));
     $response = $http->get($url);
 
-    $failure = fails(static function () use ($response, $url): void {
-        Http::save($response, $url, fopen('php://memory', 'rb'), 1 << 20);
+    if (!in_array('full-disk', stream_get_wrappers(), true)) {
+        stream_wrapper_register('full-disk', FullDisk::class);
+    }
+    $out = fopen('full-disk://out', 'wb');
+
+    $failure = fails(static function () use ($response, $url, $out): void {
+        Http::save($response, $url, $out, 1 << 20);
     });
 
     holds('cannot write the archive', $failure);
