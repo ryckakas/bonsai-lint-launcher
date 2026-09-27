@@ -6,10 +6,17 @@ declare(strict_types=1);
 
 namespace BonsaiLint\Composer;
 
-// An unreleased launcher: the release job replaces this file when it tags a version.
 final class Release
 {
-    public const VERSION = '';
+    public const VERSION = '0.4.2';
 
-    public const ARCHIVES = [];
+    public const ARCHIVES = [
+        'aarch64-apple-darwin' => ['bonsai-lint-aarch64-apple-darwin.tar.gz', '42addee6fcb53bd434c96e6a4df2359836140909a451938278a1bb25b6328777'],
+        'aarch64-unknown-linux-gnu' => ['bonsai-lint-aarch64-unknown-linux-gnu.tar.gz', '6721953a851e8ecdafc66ee9c8d5eb912be2f0ba1ed472bd3a0454bfa0bab4bb'],
+        'aarch64-unknown-linux-musl' => ['bonsai-lint-aarch64-unknown-linux-musl.tar.gz', '75214708a7fedcdbfd6ef5531aa860681dd56975b0b582692c5057b59dddb68c'],
+        'x86_64-apple-darwin' => ['bonsai-lint-x86_64-apple-darwin.tar.gz', 'd24f09d3242b1ee9d49af63fa327eee394c2adcc5a811389e6a3ba0f99e7c5c2'],
+        'x86_64-pc-windows-msvc' => ['bonsai-lint-x86_64-pc-windows-msvc.zip', '96015df86f74a3f41895c0fe423b834cf5b2a8a93e3dd0c7eaf1fe6e345cbab9'],
+        'x86_64-unknown-linux-gnu' => ['bonsai-lint-x86_64-unknown-linux-gnu.tar.gz', '0460c7d534668d50c15b2c7d8a5914e5d66d4d678d7c752da6cb4dd12a1a4d48'],
+        'x86_64-unknown-linux-musl' => ['bonsai-lint-x86_64-unknown-linux-musl.tar.gz', 'a452c44a7fccac2a26425e9189b680ea033cb4013058ee1ca1cc23a4ac850885'],
+    ];
 }
